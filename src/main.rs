@@ -61,8 +61,17 @@ fn main() -> io::Result<()> {
         for release in releases {
             if !library.has_release(&release.id) {
                 print!("Missing: ");
+                let url = mb_client
+                    .endpoints()
+                    .endpoint_builder()
+                    .add_path_fragment("release")
+                    .add_path_fragment(&release.id)
+                    .to_string();
+                print!("\x1b]8;;");
+                print!("{url}");
+                print!("\x1b\\");
                 if let Some(ref date) = release.date {
-                    print!("[{}] ", date);
+                    print!("[{date}] ");
                 }
                 if let Some(ref artist_credit) = release.artist_credit {
                     for artist in artist_credit {
@@ -76,7 +85,8 @@ fn main() -> io::Result<()> {
                         print!(" - ");
                     }
                 }
-                println!("{}", release.title);
+                print!("{}", release.title);
+                println!("\x1b]8;;\x1b\\");
             }
         }
 
