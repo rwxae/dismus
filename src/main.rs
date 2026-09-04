@@ -11,6 +11,10 @@ struct Args {
     #[arg(short, long = "artist", required = true)]
     artists: Vec<String>,
 
+    /// Skip releases where the artist appears as a featured artist
+    #[arg(long)]
+    skip_featured: bool,
+
     /// Path (or paths) to music files
     #[arg(required = true)]
     inputs: Vec<PathBuf>,
@@ -33,14 +37,28 @@ fn main() -> io::Result<()> {
     let mb_client = MusicBrainzClient::new(USER_AGENT);
 
     for artist in &args.artists {
-        let releases = Release::browse()
+        let browse_result = Release::browse()
             .by_artist(artist)
+            .with_artist_credits()
             .with_release_groups()
             .limit(100)
             .execute_with_client(&mb_client)
             .unwrap();
 
-        for release in releases.entities {
+        let releases = browse_result.entities.iter().filter(|&release| {
+            if !args.skip_featured {
+                return true;
+            }
+            let first_artist = release
+                .artist_credit
+                .as_ref()
+                .expect("Client must fetch releases with artist-credits")
+                .first()
+                .expect("Release must have at least one credited artist");
+            &first_artist.artist.id == artist
+        });
+
+        for release in releases {
             if !library.has_release(&release.id) {
                 println!("Missing: {}", release.title);
             }

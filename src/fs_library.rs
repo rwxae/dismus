@@ -10,7 +10,7 @@ use lofty::{
     tag::{ItemKey, Tag},
 };
 
-use crate::metadata::Release;
+use crate::metadata::{Artist, Release};
 
 #[derive(Default)]
 pub struct FileSystemLibrary {
@@ -92,7 +92,10 @@ impl FileSystemLibrary {
     }
 
     fn process_tags(&mut self, tag: &Tag) -> Option<()> {
-        // let artist_id = tag.get_string(ItemKey::MusicBrainzReleaseArtistId)?;
+        let artists = tag
+            .get_strings(ItemKey::MusicBrainzReleaseArtistId)
+            .map(|id| Artist { id: id.to_string() })
+            .collect();
         let group_id = tag.get_string(ItemKey::MusicBrainzReleaseGroupId)?;
         let release_id = tag.get_string(ItemKey::MusicBrainzReleaseId)?;
         // let track_id = tag.get_string(ItemKey::MusicBrainzTrackId)?;
@@ -101,6 +104,7 @@ impl FileSystemLibrary {
         self.releases
             .entry(release_id.into())
             .or_insert_with(|| Release {
+                artists,
                 group_id: group_id.to_string(),
             });
 
