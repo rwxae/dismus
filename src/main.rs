@@ -8,7 +8,7 @@ use std::{io, path::PathBuf, thread, time::Duration};
 #[command(version, about)]
 struct Args {
     /// MusicBrainz Artist ID
-    #[arg(short, long = "artist")]
+    #[arg(short, long = "artist", required = true)]
     artists: Vec<String>,
 
     /// Path (or paths) to music files
