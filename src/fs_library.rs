@@ -1,7 +1,7 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::{self, File},
-    io::{self, Error, ErrorKind},
+    io::{self, ErrorKind},
     path::Path,
 };
 
@@ -10,39 +10,39 @@ use lofty::{
     tag::{ItemKey, Tag},
 };
 
-static MUSIC_BRAINZ_VARIOUS_ARTISTS_ID: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
+use crate::metadata::Release;
 
-pub struct FileSystemLibrary<'a> {
-    root: &'a Path,
-    artists: HashSet<String>,
-    release_groups: HashMap<String, HashSet<String>>,
+#[derive(Default)]
+pub struct FileSystemLibrary {
+    releases: HashMap<String, Release>,
 }
 
-impl<'a> FileSystemLibrary<'a> {
-    pub fn new(root: &'a Path) -> Self {
-        Self {
-            root,
-            artists: HashSet::new(),
-            release_groups: HashMap::new(),
+impl FileSystemLibrary {
+    pub fn load<T: AsRef<Path>>(&mut self, inputs: &[T]) -> io::Result<()> {
+        for input in inputs {
+            let input = input.as_ref();
+            match input.try_exists() {
+                Ok(true) => (),
+                Ok(false) => {
+                    eprintln!("Warning: Input not found '{}'", input.display());
+                    continue;
+                }
+                Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                    eprintln!("Warning: Permission denied accessing '{}'", input.display());
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+            self.scan(input)?;
         }
+        Ok(())
     }
 
-    pub fn load(mut self) -> io::Result<Self> {
-        if !self.root.try_exists()? {
-            return Err(Error::from(ErrorKind::NotFound));
-        }
-        self.scan(self.root)?;
-        Ok(self)
+    pub fn has_release(&self, id: &str) -> bool {
+        self.releases.contains_key(id)
     }
 
-    pub fn get_artists(&self) -> impl Iterator<Item = &String> {
-        self.artists.iter()
-    }
-
-    pub fn has_release_group(&self, id: &str) -> bool {
-        self.release_groups.contains_key(id)
-    }
-
+    // TODO: it is very simple, naive and error-prone approach
     fn scan(&mut self, path: &Path) -> io::Result<()> {
         if path.is_dir() {
             match fs::read_dir(path) {
@@ -51,12 +51,10 @@ impl<'a> FileSystemLibrary<'a> {
                         self.scan(&entry?.path())?;
                     }
                 }
-                Err(error) => match error.kind() {
-                    ErrorKind::PermissionDenied => {
-                        eprintln!("Warning: Permission denied accessing '{}'", path.display());
-                    }
-                    _ => return Err(error),
-                },
+                Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                    eprintln!("Warning: Permission denied accessing '{}'", path.display());
+                }
+                Err(error) => return Err(error),
             }
         } else {
             self.process_file(path)?;
@@ -94,20 +92,17 @@ impl<'a> FileSystemLibrary<'a> {
     }
 
     fn process_tags(&mut self, tag: &Tag) -> Option<()> {
-        let artist_id = tag.get_string(ItemKey::MusicBrainzReleaseArtistId)?;
-        if artist_id != MUSIC_BRAINZ_VARIOUS_ARTISTS_ID {
-            self.artists.insert(artist_id.into());
-        }
-        let release_group_id = tag.get_string(ItemKey::MusicBrainzReleaseGroupId)?;
+        // let artist_id = tag.get_string(ItemKey::MusicBrainzReleaseArtistId)?;
+        let group_id = tag.get_string(ItemKey::MusicBrainzReleaseGroupId)?;
         let release_id = tag.get_string(ItemKey::MusicBrainzReleaseId)?;
         // let track_id = tag.get_string(ItemKey::MusicBrainzTrackId)?;
         // let release_title = tag.get_string(ItemKey::AlbumTitle)?;
 
-        let release_group = self
-            .release_groups
-            .entry(release_group_id.into())
-            .or_default();
-        release_group.insert(release_id.into());
+        self.releases
+            .entry(release_id.into())
+            .or_insert_with(|| Release {
+                group_id: group_id.to_string(),
+            });
 
         Some(())
     }

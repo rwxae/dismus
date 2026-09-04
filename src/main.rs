@@ -1,31 +1,42 @@
 use clap::Parser;
 use dismus::fs_library::FileSystemLibrary;
-use musicbrainz_rs::entity::release_group::ReleaseGroup;
+use musicbrainz_rs::entity::release::Release;
 use musicbrainz_rs::prelude::*;
-use std::{io, path::PathBuf};
+use std::{io, path::PathBuf, thread, time::Duration};
 
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    library_path: PathBuf,
+    /// MusicBrainz Artist ID
+    #[arg(short, long = "artist")]
+    artists: Vec<String>,
+
+    /// Path (or paths) to music files
+    #[arg(required = true)]
+    inputs: Vec<PathBuf>,
 }
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
-    let library = FileSystemLibrary::new(&args.library_path).load()?;
+    let mut library = FileSystemLibrary::default();
+    library.load(&args.inputs)?;
 
-    for artist in library.get_artists() {
-        let release_groups = ReleaseGroup::browse()
+    for artist in &args.artists {
+        let releases = Release::browse()
             .by_artist(artist)
+            .with_release_groups()
             .limit(100)
             .execute()
             .unwrap();
-        for release_group in release_groups.entities {
-            if !library.has_release_group(&release_group.id) {
-                println!("Missing: {}", release_group.title);
+
+        for release in releases.entities {
+            if !library.has_release(&release.id) {
+                println!("Missing: {}", release.title);
             }
         }
-    }
 
+        // Force to sleep. It is required by MusicBrainz API.
+        thread::sleep(Duration::from_secs(1));
+    }
     Ok(())
 }
