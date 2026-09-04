@@ -60,7 +60,23 @@ fn main() -> io::Result<()> {
 
         for release in releases {
             if !library.has_release(&release.id) {
-                println!("Missing: {}", release.title);
+                print!("Missing: ");
+                if let Some(ref date) = release.date {
+                    print!("[{}] ", date);
+                }
+                if let Some(ref artist_credit) = release.artist_credit {
+                    for artist in artist_credit {
+                        print!(
+                            "{}{}",
+                            artist.name,
+                            artist.joinphrase.as_deref().unwrap_or("")
+                        );
+                    }
+                    if !artist_credit.is_empty() {
+                        print!(" - ");
+                    }
+                }
+                println!("{}", release.title);
             }
         }
 
