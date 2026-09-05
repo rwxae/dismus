@@ -2,7 +2,7 @@ use clap::Parser;
 use dismus::fs_library::FileSystemLibrary;
 use musicbrainz_rs::prelude::*;
 use musicbrainz_rs::{MusicBrainzClient, entity::release::Release};
-use std::{io, path::PathBuf, thread, time::Duration};
+use std::{io, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -29,7 +29,8 @@ static USER_AGENT: &str = concat!(
     " )"
 );
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let args = Args::parse();
     let mut library = FileSystemLibrary::default();
     library.load(&args.inputs)?;
@@ -42,7 +43,8 @@ fn main() -> io::Result<()> {
             .with_artist_credits()
             .with_release_groups()
             .limit(100)
-            .execute_with_client(&mb_client)
+            .execute_with_client_async(&mb_client)
+            .await
             .unwrap();
 
         let releases = browse_result.entities.iter().filter(|&release| {
@@ -89,9 +91,6 @@ fn main() -> io::Result<()> {
                 println!("\x1b]8;;\x1b\\");
             }
         }
-
-        // Force to sleep. It is required by MusicBrainz API.
-        thread::sleep(Duration::from_secs(1));
     }
     Ok(())
 }
