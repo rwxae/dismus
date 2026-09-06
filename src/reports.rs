@@ -1,0 +1,86 @@
+use musicbrainz_rs::entity::release::Release;
+
+use crate::{fs_library::FSLibraryIndex, musicbrainz::MUSICBRAINZ_CLIENT};
+
+pub struct ArtistReport<'a> {
+    artist: &'a str,
+    // TODO: ideally it shout be a trait.
+    library: &'a FSLibraryIndex,
+    releases: &'a [Release],
+    skip_featured: bool,
+    // all_releases: bool,
+}
+
+impl<'a> ArtistReport<'a> {
+    pub fn new(artist: &'a str, library: &'a FSLibraryIndex, releases: &'a [Release]) -> Self {
+        Self {
+            artist,
+            library,
+            releases,
+            skip_featured: false,
+        }
+    }
+
+    pub fn skip_featured(&mut self, yes: bool) -> &mut Self {
+        self.skip_featured = yes;
+        self
+    }
+
+    pub fn execute(&self) {
+        self.releases
+            .iter()
+            .filter(|&release| {
+                if !self.skip_featured {
+                    return true;
+                }
+                let first_artist = release
+                    .artist_credit
+                    .as_ref()
+                    .expect("Client must fetch releases with artist-credits")
+                    .first()
+                    .expect("Release must have at least one credited artist");
+                first_artist.artist.id == self.artist
+            })
+            .for_each(|release| {
+                if self.library.has_release(&release.id) {
+                    // TODO: Perform an actual comparison
+                    return;
+                }
+                // TODO: currently it is an opinionated report result.
+                // ideally it should be a struct like Report::Missing
+                // which could have a method like display() or something
+                // like that.
+                // This would allow to use these reports in many areas.
+                // e.g. Navidrome plugin could use this data to display
+                // missing releases in WEB UI.
+
+                print!("Missing: ");
+                let url = MUSICBRAINZ_CLIENT
+                    .endpoints()
+                    .endpoint_builder()
+                    .add_path_fragment("release")
+                    .add_path_fragment(&release.id)
+                    .to_string();
+                print!("\x1b]8;;");
+                print!("{url}");
+                print!("\x1b\\");
+                if let Some(ref date) = release.date {
+                    print!("[{date}] ");
+                }
+                if let Some(ref artist_credit) = release.artist_credit {
+                    for artist in artist_credit {
+                        print!(
+                            "{}{}",
+                            artist.name,
+                            artist.joinphrase.as_deref().unwrap_or("")
+                        );
+                    }
+                    if !artist_credit.is_empty() {
+                        print!(" - ");
+                    }
+                }
+                print!("{}", release.title);
+                println!("\x1b]8;;\x1b\\");
+            });
+    }
+}

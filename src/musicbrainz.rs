@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use musicbrainz_rs::{ApiEndpointError, Browse, BrowseQuery, MusicBrainzClient, entity::Browsable};
 use serde::de::DeserializeOwned;
 
@@ -10,7 +12,9 @@ pub static USER_AGENT: &str = concat!(
     " )"
 );
 
-// TODO: use it to ignore such artists (these have too many releases to process)
+pub static MUSICBRAINZ_CLIENT: LazyLock<MusicBrainzClient> =
+    LazyLock::new(|| MusicBrainzClient::new(USER_AGENT));
+
 pub static MUSIC_BRAINZ_VARIOUS_ARTISTS_ID: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
 
 pub trait BrowseQueryExt<T: Clone> {
