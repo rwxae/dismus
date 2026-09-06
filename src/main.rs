@@ -1,5 +1,5 @@
 use clap::Parser;
-use dismus::fs_library::FileSystemLibrary;
+use dismus::fs_library::FSLibraryScanner;
 use dismus::musicbrainz::{BrowseQueryExt, USER_AGENT};
 use musicbrainz_rs::prelude::*;
 use musicbrainz_rs::{MusicBrainzClient, entity::release::Release};
@@ -26,8 +26,7 @@ struct Args {
 async fn main() -> io::Result<()> {
     let args = Args::parse();
     // TODO: spawn blocking thread and send via watch channel
-    let mut library = FileSystemLibrary::default();
-    library.load(&args.inputs)?;
+    let library = FSLibraryScanner::default().scan(&args.inputs);
 
     let mb_client = MusicBrainzClient::new(USER_AGENT);
 

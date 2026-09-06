@@ -1,94 +1,119 @@
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::{self, ErrorKind},
-    path::Path,
-};
+use std::{collections::HashMap, fs::File, path::Path};
 
 use lofty::{
     file::{EXTENSIONS, TaggedFileExt},
     tag::{ItemKey, Tag},
 };
 
-use crate::metadata::{Artist, Release};
+use ignore::WalkBuilder;
+
+use crate::metadata::{Artist, Release, Song};
 
 #[derive(Default)]
-pub struct FileSystemLibrary {
-    releases: HashMap<String, Release>,
+pub struct FSLibraryIndex {
+    releases: Vec<Release>,
+    releases_index: HashMap<String, usize>,
 }
 
-impl FileSystemLibrary {
-    pub fn load<T: AsRef<Path>>(&mut self, inputs: &[T]) -> io::Result<()> {
-        for input in inputs {
-            let input = input.as_ref();
-            match input.try_exists() {
-                Ok(true) => (),
-                Ok(false) => {
-                    eprintln!("Warning: Input not found '{}'", input.display());
-                    continue;
-                }
-                Err(error) if error.kind() == ErrorKind::PermissionDenied => {
-                    eprintln!("Warning: Permission denied accessing '{}'", input.display());
-                    continue;
-                }
-                Err(error) => return Err(error),
-            }
-            self.scan(input)?;
-        }
-        Ok(())
-    }
-
+impl FSLibraryIndex {
     pub fn has_release(&self, id: &str) -> bool {
-        self.releases.contains_key(id)
+        self.releases_index.contains_key(id)
     }
 
-    // TODO: it is very simple, naive and error-prone approach
-    fn scan(&mut self, path: &Path) -> io::Result<()> {
-        if path.is_dir() {
-            match fs::read_dir(path) {
-                Ok(entries) => {
-                    for entry in entries {
-                        self.scan(&entry?.path())?;
+    pub fn add_song(&mut self, song: Song, release_id: &str, group_id: &str, artists: Vec<Artist>) {
+        let release = if self.has_release(release_id) {
+            &mut self.releases[self.releases_index[release_id]]
+        } else {
+            let release = Release {
+                id: release_id.to_string(),
+                group_id: group_id.to_string(),
+                artists,
+                songs: Vec::new(),
+            };
+            self.releases.push(release);
+            let index = self.releases.len() - 1;
+            self.releases_index.insert(release_id.to_string(), index);
+            &mut self.releases[index]
+        };
+        release.songs.push(song);
+    }
+}
+
+#[derive(Default)]
+pub struct FSLibraryScanner {
+    index: FSLibraryIndex,
+}
+
+impl FSLibraryScanner {
+    pub fn scan<T: AsRef<Path>>(mut self, paths: &[T]) -> FSLibraryIndex {
+        let walk = WalkBuilder::from_iter(paths)
+            .standard_filters(false)
+            .filter_entry(|entry| {
+                // Ignore stdin, include all dirs
+                if entry.file_type().is_some_and(|f| f.is_dir()) {
+                    return true;
+                }
+                let path = entry.path();
+                let Some(extension) = path.extension() else {
+                    return false;
+                };
+                EXTENSIONS.iter().any(|candidate| extension == *candidate)
+            })
+            // TODO: should i use build_parallel instead?
+            // If yes, should I still be using spawn_blocking from tokio?
+            .build();
+
+        for entry in walk {
+            match entry {
+                Ok(entry) => {
+                    if entry.file_type().is_some_and(|f| f.is_file()) {
+                        self.process_file(entry.path());
                     }
                 }
-                Err(error) if error.kind() == ErrorKind::PermissionDenied => {
-                    eprintln!("Warning: Permission denied accessing '{}'", path.display());
+                Err(error) => {
+                    eprintln!("WARN: encountered an error during the scan: {}", error);
                 }
-                Err(error) => return Err(error),
             }
-        } else {
-            self.process_file(path)?;
         }
-        Ok(())
+
+        self.index
     }
 
-    fn process_file(&mut self, path: &Path) -> io::Result<bool> {
-        let Some(extension) = path.extension() else {
-            return Ok(false);
-        };
-        let is_song = EXTENSIONS.iter().any(|candidate| extension == *candidate);
-        if !is_song {
-            return Ok(false);
-        }
+    fn process_file(&mut self, path: &Path) -> bool {
         let mut file = match File::open(path) {
             Ok(file) => file,
-            Err(error) => match error.kind() {
-                ErrorKind::PermissionDenied => {
-                    eprintln!("Warning: Permission denied accessing '{}'", path.display());
-                    return Ok(false);
-                }
-                _ => return Err(error),
-            },
+            Err(error) => {
+                eprintln!(
+                    "WARN: couldn't open a file at '{}'. Error: {}",
+                    path.display(),
+                    error
+                );
+                return false;
+            }
         };
-        // TODO: better error handling
-        let tagged_file = lofty::read_from(&mut file).unwrap();
+        let tagged_file = match lofty::read_from(&mut file) {
+            Ok(tagged_file) => tagged_file,
+            Err(error) => {
+                eprintln!(
+                    "WARN: couldn't parse metadata at '{}'. Error: {}",
+                    path.display(),
+                    error
+                );
+                return false;
+            }
+        };
         let Some(tag) = tagged_file.primary_tag() else {
-            eprintln!("Could not retrieve metadata from '{}'", path.display());
-            return Ok(false);
+            eprintln!("WARN: no metadata found in '{}'", path.display());
+            return false;
         };
-        // TODO: report if tags are missing
-        self.process_tags(tag);
-        Ok(true)
+        if self.process_tags(tag).is_none() {
+            eprintln!(
+                "WARN: no MusicBrainz metadata found in '{}'",
+                path.display()
+            );
+            return false;
+        }
+        true
     }
 
     fn process_tags(&mut self, tag: &Tag) -> Option<()> {
@@ -98,15 +123,14 @@ impl FileSystemLibrary {
             .collect();
         let group_id = tag.get_string(ItemKey::MusicBrainzReleaseGroupId)?;
         let release_id = tag.get_string(ItemKey::MusicBrainzReleaseId)?;
-        // let track_id = tag.get_string(ItemKey::MusicBrainzTrackId)?;
+        let track_id = tag.get_string(ItemKey::MusicBrainzTrackId)?;
         // let release_title = tag.get_string(ItemKey::AlbumTitle)?;
 
-        self.releases
-            .entry(release_id.into())
-            .or_insert_with(|| Release {
-                artists,
-                group_id: group_id.to_string(),
-            });
+        let song = Song {
+            id: track_id.to_string(),
+        };
+
+        self.index.add_song(song, release_id, group_id, artists);
 
         Some(())
     }
