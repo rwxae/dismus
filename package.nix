@@ -5,7 +5,7 @@ rustPlatform.buildRustPackage {
 
   name = with builtins; (fromTOML (readFile ./Cargo.toml)).package.name;
 
-  cargoHash = "sha256-2Xfp4w/UB0kpq+Qb6Tqh8r06U7Yeut2CRC7a+7ujLik=";
+  cargoHash = "sha256-Ydtjrm/d9j7x633pZECWp1gawHY6VsdIStB4Q3uBvMM=";
 
   meta.mainProgram = "dismus";
 }
