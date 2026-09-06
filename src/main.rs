@@ -1,7 +1,9 @@
 use clap::Parser;
 use dismus::fs_library::FileSystemLibrary;
+use dismus::musicbrainz::{BrowseQueryExt, USER_AGENT};
 use musicbrainz_rs::prelude::*;
 use musicbrainz_rs::{MusicBrainzClient, entity::release::Release};
+use std::io::ErrorKind;
 use std::{io, path::PathBuf};
 
 #[derive(Parser)]
@@ -20,45 +22,42 @@ struct Args {
     inputs: Vec<PathBuf>,
 }
 
-static USER_AGENT: &str = concat!(
-    env!("CARGO_PKG_NAME"),
-    "/",
-    env!("CARGO_PKG_VERSION"),
-    " (",
-    env!("CARGO_PKG_REPOSITORY"),
-    " )"
-);
-
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let args = Args::parse();
+    // TODO: spawn blocking thread and send via watch channel
     let mut library = FileSystemLibrary::default();
     library.load(&args.inputs)?;
 
     let mb_client = MusicBrainzClient::new(USER_AGENT);
 
+    // TODO: use tokio::JoinSet.
     for artist in &args.artists {
-        let browse_result = Release::browse()
+        let releases = Release::browse()
             .by_artist(artist)
             .with_artist_credits()
             .with_release_groups()
-            .limit(100)
-            .execute_with_client_async(&mb_client)
+            .execute_all_with_client_async(&mb_client)
             .await
-            .unwrap();
+            // TODO: better error handling
+            .map_err(|_| io::Error::from(ErrorKind::ConnectionAborted))?;
 
-        let releases = browse_result.entities.iter().filter(|&release| {
-            if !args.skip_featured {
-                return true;
-            }
-            let first_artist = release
-                .artist_credit
-                .as_ref()
-                .expect("Client must fetch releases with artist-credits")
-                .first()
-                .expect("Release must have at least one credited artist");
-            &first_artist.artist.id == artist
-        });
+        // TODO: perform filtering logic differently
+        let releases = releases
+            .into_iter()
+            .filter(|release| {
+                if !args.skip_featured {
+                    return true;
+                }
+                let first_artist = release
+                    .artist_credit
+                    .as_ref()
+                    .expect("Client must fetch releases with artist-credits")
+                    .first()
+                    .expect("Release must have at least one credited artist");
+                first_artist.artist.id == *artist
+            })
+            .collect::<Vec<_>>();
 
         for release in releases {
             if !library.has_release(&release.id) {
