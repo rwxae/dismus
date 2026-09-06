@@ -4,8 +4,8 @@ use dismus::musicbrainz::{BrowseQueryExt, MUSIC_BRAINZ_VARIOUS_ARTISTS_ID, MUSIC
 use dismus::reports::ArtistReport;
 use musicbrainz_rs::entity::release::Release;
 use musicbrainz_rs::prelude::*;
-use std::io::ErrorKind;
 use std::{io, path::PathBuf};
+use tokio::task::{JoinSet, spawn_blocking};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -26,25 +26,32 @@ struct Args {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let args = Args::parse();
-    // TODO: spawn blocking thread and send via watch channel
-    let library = FSLibraryScanner::default().scan(&args.inputs);
 
-    // TODO: use tokio::JoinSet.
-    for artist in &args.artists {
-        if artist == MUSIC_BRAINZ_VARIOUS_ARTISTS_ID {
-            eprintln!("'Various Artists' has too many releases to process");
-            continue;
-        }
-        let releases = Release::browse()
-            .by_artist(artist)
-            .with_artist_credits()
-            .with_release_groups()
-            .execute_all_with_client_async(&MUSICBRAINZ_CLIENT)
-            .await
-            // TODO: better error handling
-            .map_err(|_| io::Error::from(ErrorKind::ConnectionAborted))?;
+    let inputs = args.inputs.clone();
+    let library_scan_job = spawn_blocking(move || FSLibraryScanner::default().scan(&inputs));
 
-        ArtistReport::new(artist, &library, &releases)
+    let mut artists_jobs: JoinSet<_> = args
+        .artists
+        .clone()
+        .into_iter()
+        .filter(|artist| artist != MUSIC_BRAINZ_VARIOUS_ARTISTS_ID)
+        .map(async |artist| {
+            let releases = Release::browse()
+                .by_artist(&artist)
+                .with_artist_credits()
+                .with_release_groups()
+                .execute_all_with_client_async(&MUSICBRAINZ_CLIENT)
+                .await
+                .unwrap_or_else(|_| panic!("Could not fetch releases for artist '{}'", artist));
+            (artist, releases)
+        })
+        .collect();
+
+    let library = library_scan_job.await?;
+
+    while let Some(artist_data) = artists_jobs.join_next().await {
+        let (artist, releases) = artist_data?;
+        ArtistReport::new(&artist, &library, &releases)
             .skip_featured(args.skip_featured)
             .execute();
     }
