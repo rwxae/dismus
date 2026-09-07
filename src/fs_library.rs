@@ -20,6 +20,10 @@ impl FSLibraryIndex {
         self.releases_index.contains_key(id)
     }
 
+    pub fn has_release_group(&self, id: &str) -> bool {
+        self.releases.iter().any(|release| release.group_id == id)
+    }
+
     pub fn add_song(&mut self, song: Song, release_id: &str, group_id: &str, artists: Vec<Artist>) {
         let release = if self.has_release(release_id) {
             &mut self.releases[self.releases_index[release_id]]

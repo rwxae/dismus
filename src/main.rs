@@ -17,13 +17,17 @@ struct Args {
     #[arg(short, long = "artist", required = true)]
     artists: Vec<String>,
 
-    /// The type of a MusicBrainz release.
+    /// The type of a MusicBrainz release
     #[arg(long = "release-type", value_enum)]
     release_types: Vec<MusicBrainzReleaseType>,
 
     /// Skip releases where the artist appears as a featured artist
     #[arg(long)]
     skip_featured: bool,
+
+    /// Include all releases belonging to a release group
+    #[arg(long)]
+    include_all_from_group: bool,
 
     /// Path (or paths) to music files
     #[arg(required = true)]
@@ -36,6 +40,7 @@ async fn main() -> io::Result<()> {
         artists,
         release_types,
         skip_featured,
+        include_all_from_group,
         inputs,
     } = Args::parse();
 
@@ -65,6 +70,7 @@ async fn main() -> io::Result<()> {
         let (artist, releases) = artist_data?;
         ArtistReport::new(&artist, &library, &releases, &release_types)
             .skip_featured(skip_featured)
+            .include_all_from_group(include_all_from_group)
             .execute();
     }
 

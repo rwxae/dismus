@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use musicbrainz_rs::entity::{release::Release, release_group::ReleaseGroupPrimaryType};
 
 use crate::{fs_library::FSLibraryIndex, musicbrainz::MUSICBRAINZ_CLIENT};
@@ -9,7 +11,10 @@ pub struct ArtistReport<'a> {
     releases: &'a [Release],
     skip_featured: bool,
     allowed_release_types: &'a [ReleaseGroupPrimaryType],
-    // all_releases: bool,
+    include_all_from_group: bool,
+    // TODO: it is a temporary state for Filter logic.
+    // how to improve it?
+    seen_missing_groups: HashSet<String>,
 }
 
 impl<'a> ArtistReport<'a> {
@@ -25,6 +30,8 @@ impl<'a> ArtistReport<'a> {
             releases,
             allowed_release_types,
             skip_featured: false,
+            include_all_from_group: false,
+            seen_missing_groups: HashSet::new(),
         }
     }
 
@@ -33,7 +40,12 @@ impl<'a> ArtistReport<'a> {
         self
     }
 
-    pub fn execute(&self) {
+    pub fn include_all_from_group(&mut self, yes: bool) -> &mut Self {
+        self.include_all_from_group = yes;
+        self
+    }
+
+    pub fn execute(&mut self) {
         self.releases
             .iter()
             .filter(|&release| {
@@ -59,6 +71,24 @@ impl<'a> ArtistReport<'a> {
                     .first()
                     .expect("Release must have at least one credited artist");
                 first_artist.artist.id == self.artist
+            })
+            .filter(|&release| {
+                if self.include_all_from_group {
+                    return true;
+                }
+                let group_id = &release
+                    .release_group
+                    .as_ref()
+                    .expect("Client must fetch releases with release-groups")
+                    .id;
+                if self.library.has_release_group(group_id) {
+                    return self.library.has_release(&release.id);
+                }
+                if self.seen_missing_groups.contains(group_id) {
+                    return false;
+                }
+                self.seen_missing_groups.insert(group_id.clone());
+                true
             })
             .for_each(|release| {
                 if self.library.has_release(&release.id) {
