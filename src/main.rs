@@ -1,8 +1,11 @@
 use clap::Parser;
 use dismus::fs_library::FSLibraryScanner;
-use dismus::musicbrainz::{BrowseQueryExt, MUSIC_BRAINZ_VARIOUS_ARTISTS_ID, MUSICBRAINZ_CLIENT};
+use dismus::musicbrainz::{
+    BrowseQueryExt, MUSIC_BRAINZ_VARIOUS_ARTISTS_ID, MUSICBRAINZ_CLIENT, MusicBrainzReleaseType,
+};
 use dismus::reports::ArtistReport;
 use musicbrainz_rs::entity::release::Release;
+use musicbrainz_rs::entity::release_group::ReleaseGroupPrimaryType;
 use musicbrainz_rs::prelude::*;
 use std::{io, path::PathBuf};
 use tokio::task::{JoinSet, spawn_blocking};
@@ -13,6 +16,10 @@ struct Args {
     /// MusicBrainz Artist ID
     #[arg(short, long = "artist", required = true)]
     artists: Vec<String>,
+
+    /// The type of a MusicBrainz release.
+    #[arg(long = "release-type", value_enum)]
+    release_types: Vec<MusicBrainzReleaseType>,
 
     /// Skip releases where the artist appears as a featured artist
     #[arg(long)]
@@ -25,14 +32,16 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let args = Args::parse();
+    let Args {
+        artists,
+        release_types,
+        skip_featured,
+        inputs,
+    } = Args::parse();
 
-    let inputs = args.inputs.clone();
     let library_scan_job = spawn_blocking(move || FSLibraryScanner::default().scan(&inputs));
 
-    let mut artists_jobs: JoinSet<_> = args
-        .artists
-        .clone()
+    let mut artists_jobs: JoinSet<_> = artists
         .into_iter()
         .filter(|artist| artist != MUSIC_BRAINZ_VARIOUS_ARTISTS_ID)
         .map(async |artist| {
@@ -49,10 +58,13 @@ async fn main() -> io::Result<()> {
 
     let library = library_scan_job.await?;
 
+    let release_types: Vec<ReleaseGroupPrimaryType> =
+        release_types.into_iter().map(|v| v.into()).collect();
+
     while let Some(artist_data) = artists_jobs.join_next().await {
         let (artist, releases) = artist_data?;
-        ArtistReport::new(&artist, &library, &releases)
-            .skip_featured(args.skip_featured)
+        ArtistReport::new(&artist, &library, &releases, &release_types)
+            .skip_featured(skip_featured)
             .execute();
     }
 

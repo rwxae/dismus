@@ -1,4 +1,4 @@
-use musicbrainz_rs::entity::release::Release;
+use musicbrainz_rs::entity::{release::Release, release_group::ReleaseGroupPrimaryType};
 
 use crate::{fs_library::FSLibraryIndex, musicbrainz::MUSICBRAINZ_CLIENT};
 
@@ -8,15 +8,22 @@ pub struct ArtistReport<'a> {
     library: &'a FSLibraryIndex,
     releases: &'a [Release],
     skip_featured: bool,
+    allowed_release_types: &'a [ReleaseGroupPrimaryType],
     // all_releases: bool,
 }
 
 impl<'a> ArtistReport<'a> {
-    pub fn new(artist: &'a str, library: &'a FSLibraryIndex, releases: &'a [Release]) -> Self {
+    pub fn new(
+        artist: &'a str,
+        library: &'a FSLibraryIndex,
+        releases: &'a [Release],
+        allowed_release_types: &'a [ReleaseGroupPrimaryType],
+    ) -> Self {
         Self {
             artist,
             library,
             releases,
+            allowed_release_types,
             skip_featured: false,
         }
     }
@@ -29,6 +36,18 @@ impl<'a> ArtistReport<'a> {
     pub fn execute(&self) {
         self.releases
             .iter()
+            .filter(|&release| {
+                if self.allowed_release_types.is_empty() {
+                    return true;
+                }
+                release
+                    .release_group
+                    .as_ref()
+                    .expect("Client must fetch releases with release-groups")
+                    .primary_type
+                    .as_ref()
+                    .is_some_and(|kind| self.allowed_release_types.contains(kind))
+            })
             .filter(|&release| {
                 if !self.skip_featured {
                     return true;

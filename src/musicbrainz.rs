@@ -1,7 +1,10 @@
-use std::sync::LazyLock;
-
-use musicbrainz_rs::{ApiEndpointError, Browse, BrowseQuery, MusicBrainzClient, entity::Browsable};
+use clap::ValueEnum;
+use musicbrainz_rs::{
+    ApiEndpointError, Browse, BrowseQuery, MusicBrainzClient,
+    entity::{Browsable, release_group::ReleaseGroupPrimaryType},
+};
 use serde::de::DeserializeOwned;
+use std::sync::LazyLock;
 
 pub static USER_AGENT: &str = concat!(
     env!("CARGO_PKG_NAME"),
@@ -50,5 +53,27 @@ impl<T: Clone> BrowseQueryExt<T> for BrowseQuery<T> {
             items.extend(result.entities);
         }
         Ok(items)
+    }
+}
+
+// TODO: is it really a good practice?
+#[derive(Clone, ValueEnum)]
+pub enum MusicBrainzReleaseType {
+    Album,
+    Ep,
+    Single,
+    Broadcast,
+    Other,
+}
+
+impl From<MusicBrainzReleaseType> for ReleaseGroupPrimaryType {
+    fn from(value: MusicBrainzReleaseType) -> Self {
+        match value {
+            MusicBrainzReleaseType::Album => ReleaseGroupPrimaryType::Album,
+            MusicBrainzReleaseType::Ep => ReleaseGroupPrimaryType::Ep,
+            MusicBrainzReleaseType::Single => ReleaseGroupPrimaryType::Single,
+            MusicBrainzReleaseType::Broadcast => ReleaseGroupPrimaryType::Broadcast,
+            MusicBrainzReleaseType::Other => ReleaseGroupPrimaryType::Other,
+        }
     }
 }
