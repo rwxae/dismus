@@ -8,10 +8,12 @@ pub struct ArtistReport<'a> {
     artist: &'a str,
     // TODO: ideally it shout be a trait.
     library: &'a FSLibraryIndex,
+    // TODO: create a wrapper around it for useful methods
     releases: &'a [Release],
     skip_featured: bool,
     allowed_release_types: &'a [ReleaseGroupPrimaryType],
     include_all_from_group: bool,
+    include_album_singles: bool,
     // TODO: it is a temporary state for Filter logic.
     // how to improve it?
     seen_missing_groups: HashSet<String>,
@@ -31,6 +33,7 @@ impl<'a> ArtistReport<'a> {
             allowed_release_types,
             skip_featured: false,
             include_all_from_group: false,
+            include_album_singles: false,
             seen_missing_groups: HashSet::new(),
         }
     }
@@ -42,6 +45,11 @@ impl<'a> ArtistReport<'a> {
 
     pub fn include_all_from_group(&mut self, yes: bool) -> &mut Self {
         self.include_all_from_group = yes;
+        self
+    }
+
+    pub fn include_album_singles(&mut self, yes: bool) -> &mut Self {
+        self.include_album_singles = yes;
         self
     }
 
@@ -89,6 +97,55 @@ impl<'a> ArtistReport<'a> {
                 }
                 self.seen_missing_groups.insert(group_id.clone());
                 true
+            })
+            .filter(|&release| {
+                if self.include_album_singles {
+                    return true;
+                }
+                let Some(release_group) = release.release_group.as_ref() else {
+                    return true;
+                };
+                let is_single = release_group
+                    .primary_type
+                    .as_ref()
+                    .is_some_and(|kind| *kind == ReleaseGroupPrimaryType::Single);
+                if !is_single {
+                    return true;
+                }
+                let maybe_recording = release
+                    .media
+                    .as_ref()
+                    .and_then(|medias| medias.first())
+                    .and_then(|media| media.tracks.as_ref())
+                    .and_then(|tracks| tracks.first())
+                    .and_then(|track| track.recording.as_ref());
+                let Some(recording) = maybe_recording else {
+                    return true;
+                };
+                // TODO: it is better to hide it in a separate api.
+                !self.releases.iter().any(|r| {
+                    if r.id == release.id {
+                        return false;
+                    }
+                    let Some(rg) = r.release_group.as_ref() else {
+                        return false;
+                    };
+                    if rg.id == release_group.id {
+                        return false;
+                    }
+                    r.media.as_ref().is_some_and(|medias| {
+                        medias.iter().any(|media| {
+                            media.tracks.as_ref().is_some_and(|tracks| {
+                                tracks.iter().any(|track| {
+                                    track
+                                        .recording
+                                        .as_ref()
+                                        .is_some_and(|rec| rec.id == recording.id)
+                                })
+                            })
+                        })
+                    })
+                })
             })
             .for_each(|release| {
                 if self.library.has_release(&release.id) {

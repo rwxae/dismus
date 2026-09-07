@@ -29,6 +29,10 @@ struct Args {
     #[arg(long)]
     include_all_from_group: bool,
 
+    /// Include singles that also appear as tracks on an album
+    #[arg(long)]
+    include_album_singles: bool,
+
     /// Path (or paths) to music files
     #[arg(required = true)]
     inputs: Vec<PathBuf>,
@@ -41,6 +45,7 @@ async fn main() -> io::Result<()> {
         release_types,
         skip_featured,
         include_all_from_group,
+        include_album_singles,
         inputs,
     } = Args::parse();
 
@@ -54,6 +59,7 @@ async fn main() -> io::Result<()> {
                 .by_artist(&artist)
                 .with_artist_credits()
                 .with_release_groups()
+                .with_recordings()
                 .execute_all_with_client_async(&MUSICBRAINZ_CLIENT)
                 .await
                 .unwrap_or_else(|_| panic!("Could not fetch releases for artist '{}'", artist));
@@ -71,6 +77,7 @@ async fn main() -> io::Result<()> {
         ArtistReport::new(&artist, &library, &releases, &release_types)
             .skip_featured(skip_featured)
             .include_all_from_group(include_all_from_group)
+            .include_album_singles(include_album_singles)
             .execute();
     }
 
