@@ -9,8 +9,9 @@
         nixpkgs.lib.genAttrs nixpkgs.lib.systems.flakeExposed (system: fn nixpkgs.legacyPackages.${system});
     in
     {
-      packages = eachSystem (pkgs: {
-        default = pkgs.callPackage ./package.nix { };
+      packages = eachSystem (pkgs: rec {
+        dismus = pkgs.callPackage ./package.nix { };
+        default = dismus;
       });
 
       devShells = eachSystem (pkgs: {
