@@ -11,3 +11,4 @@ lofty = "0.25.1"
 musicbrainz_rs = { version = "0.14.0", features = ["async", "rustls", "rate_limit"] }
 serde = "1.0.229"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync"] }
+url = "2.5.8"

@@ -447,6 +447,7 @@ dependencies = [
  "musicbrainz_rs",
  "serde",
  "tokio",
+ "url",
 ]
 
 [[package]]

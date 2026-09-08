@@ -9,12 +9,13 @@ use musicbrainz_rs::entity::release_group::ReleaseGroupPrimaryType;
 use musicbrainz_rs::prelude::*;
 use std::{io, path::PathBuf};
 use tokio::task::{JoinSet, spawn_blocking};
+use url::Url;
 
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    /// MusicBrainz Artist ID
-    #[arg(short, long = "artist", required = true)]
+    /// MusicBrainz Artist ID or URL
+    #[arg(short, long = "artist", required = true, value_parser = parse_artist)]
     artists: Vec<String>,
 
     /// The type of a MusicBrainz release
@@ -82,4 +83,22 @@ async fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_artist(id_or_url: &str) -> Result<String, String> {
+    let Ok(url) = Url::parse(id_or_url) else {
+        return Ok(id_or_url.to_string());
+    };
+    let Some(mut segments) = url.path_segments() else {
+        return Err("url doesn't contain path segments".to_string());
+    };
+    while let Some(segment) = segments.next() {
+        if segment == "artist" {
+            return match segments.next() {
+                Some(id) => Ok(id.to_string()),
+                None => Err("url doesn't contain artist id".to_string()),
+            };
+        }
+    }
+    Err("url doesn't contain artist id".to_string())
 }
